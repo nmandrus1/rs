@@ -1,99 +1,62 @@
-use std::fs::ReadDir;
-
 use super::*;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum FileType {
+pub enum FType {
     File,
     Dir,
     Symlink,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-struct Entry {
-    name: String,
-    ftype: FileType,
+pub struct Entry {
+    pub name: String,
+    pub ftype: FType,
 }
 
 #[derive(Debug)]
-pub struct Entries {
-    fvec: Vec<Entry>,
-    dvec: Vec<Entry>,
-}
+pub struct Entries (pub Vec<Entry>);
 
 impl Entries {
-    pub fn new() -> Self {
-        Self {
-            fvec: Vec::with_capacity(35),
-            dvec: Vec::with_capacity(35),
-        }
-    }
-
-    pub fn print_entries(self) -> anyhow::Result<()> {
-        use crossterm::style::Stylize;
-        use crossterm::{execute, terminal::EnableLineWrap};
-        use std::{io, io::Write};
-        use textfmt::Formatter;
-
-        let mut dvec = self.dvec;
-        let mut fvec = self.fvec;
-
-        execute!(io::stdout(), EnableLineWrap,)?;
-
-        let stdout = io::stdout();
-        let mut buffer = io::BufWriter::new(stdout);
-        
-        sort_vec(&mut dvec)?;
-        sort_vec(&mut fvec)?;
-
-        // Create one big iter and match on FileType
-        let dvec = dvec.into_iter().chain(fvec.into_iter())
-            .map(|entry| match entry.ftype {
-                FileType::Dir => format!("{:5}  ", entry.name.blue().bold()),
-                FileType::File => format!("{:5}  ", entry.name.white()),
-                FileType::Symlink => format!("{:5}  ", entry.name.cyan().bold()),
-            }).collect();
-        
-        // let formatter = Formatter::new_from_vec(dvec);
-        let formatter = Formatter::new_from_vec(dvec).format();
-
-        Ok(())
-    }
-
     pub fn dirs_only(&mut self) {
-        self.fvec.clear();
+        remove_from_vec(&mut self.0, |entry: &Entry| entry.ftype != FType::Dir)
     }
-
     pub fn ignore_dotfiles(&mut self) {
-        remove_from_vec(&mut self.dvec, |entry: &Entry| entry.name.starts_with('.'));
-        remove_from_vec(&mut self.fvec, |entry: &Entry| entry.name.starts_with('.'));
+        remove_from_vec(&mut self.0, |entry: &Entry| entry.name.starts_with('.'));
     }
 
-    pub fn get_files_and_dirs(&mut self, iter: ReadDir) -> Result<()> {
+    // From a path, grab all the items in it and put their info in Entry
+    pub fn get_files_and_dirs(path: PathBuf) -> Result<Self> {
+        let iter = std::fs::read_dir(path)?;
+        let mut entries = Vec::with_capacity(50);
+
         for entry in iter {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
-                self.dvec.push(Entry {
+                entries.push(Entry {
                     name: entry.file_name().into_string().expect("Not valid UTF-8"),
-                    ftype: FileType::Dir,
+                    ftype: FType::Dir,
                 })
             } else if entry.file_type()?.is_file() {
-                self.fvec.push(Entry {
+                entries.push(Entry {
                     name: entry.file_name().into_string().expect("Not valid UTF-8"),
-                    ftype: FileType::File,
+                    ftype: FType::File,
                 })
             } else {
-                self.fvec.push(Entry {
+                entries.push(Entry {
                     name: entry.file_name().into_string().expect("Not valid UTF-8"),
-                    ftype: FileType::Symlink,
+                    ftype: FType::Symlink,
                 })
             }
         }
 
-        Ok(())
+        sort_vec(&mut entries)?;
+
+        Ok(Self(entries))
     }
 }
 
+// Take the vec and Pattern that yeilds T/F 
+// and removes where the Pattern yeilds F
 fn remove_from_vec<P>(vec: &mut Vec<Entry>, mut pattern: P) 
 where P: FnMut(&Entry) -> bool
 {
@@ -107,10 +70,20 @@ where P: FnMut(&Entry) -> bool
     }
 }
 
-fn sort_vec(vec: &mut [Entry]) -> anyhow::Result<()> {
-    let mut other_vec: Vec<_> = Vec::with_capacity(vec.len());
-    other_vec.extend_from_slice(vec);
+// Sort vector as if the '.' didnt exist on some of them
+//
+// Sort: Insertion Sort
+fn sort_vec(slice: &mut [Entry]) -> anyhow::Result<()> {
+    // Clone slice into other_slice because I'm choosing to 
+    // remove the '.' from strings that have them in other slice
+    // and then sort alphabetically while simultaneously sorting the
+    // original slice
 
+    // Clone slice
+    let mut other_vec: Vec<_> = Vec::with_capacity(slice.len());
+    other_vec.extend_from_slice(slice);
+
+    // Remove '.' from file names thathave them
     let mut other_vec: Vec<_> = other_vec.iter_mut()
         .map(|entry| {
             if entry.name.starts_with('.') {
@@ -119,14 +92,21 @@ fn sort_vec(vec: &mut [Entry]) -> anyhow::Result<()> {
         }) 
         .collect();
 
+    // Insertion Sort
     for i in 1..other_vec.len() {
         let mut j = i;
         while j > 0 && other_vec[j] < other_vec[j - 1]{
             other_vec.swap(j - 1, j);
-            vec.swap(j - 1, j);
+            slice.swap(j - 1, j);
             j -= 1;
         }       
     }
 
     Ok(())
+}
+
+pub fn print_entries(mut entries: Entries) {
+    use textfmt::Formatter;
+
+    Formatter::new_from_vec(entries).format();
 }

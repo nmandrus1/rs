@@ -1,44 +1,46 @@
 use std::io::{Write, BufWriter, stdout};
 
+use crossterm::style::Stylize;
+
+use super::entries::{Entries, FType};
+
 pub struct Formatter {
-    strings: Vec<String>,
-    widths: Vec<usize>,
+    entries: Entries,
+    term_width: u16,
 }
 
 // Just what I called the struct 
 // that handles formatting the output
 impl Formatter {
-    pub fn new_from_vec(vec: Vec<String>) -> Self {
-        Self { strings: vec, widths: Vec::with_capacity(6) }
+    pub fn new_from_vec(entries: Entries) -> Self {
+        Self { 
+            entries,
+            term_width: crossterm::terminal::size().unwrap().0,
+        }
     }
 
     pub fn format(self) -> anyhow::Result<()> {
-        use crossterm::terminal::size;
-        // Get the width of the terminal
-        let (x, _) = size()?;
+        if self.one_line() {
 
-        let iter = self.strings.iter()
-            .map(|string| string.len() - 18 );
-
-        let sum = iter.sum::<usize>();
-
-        // if the strings can fit in one line print them in one line
-        // otherwise print with columns
-        if sum < x as usize {
-            Self::std_print(self.strings)?;
+            self.print()?;
         } else {
-            Self::column_print(self.strings, x)?;
+            println!("Calculating columns...");
+            self.column_print()?;
         }
-
         Ok(())
     }
 
     // Fxn to print strings to one line
-    fn std_print(strings: Vec<String>) -> anyhow::Result<()> {
+    fn print(self) -> anyhow::Result<()> {
+        let entries = self.entries;
         let mut buf = BufWriter::new(stdout());
 
-        for string in strings {
-            write!(buf, "{}", string)?;
+        for entry in entries.0 {
+            match entry.ftype {
+                FType::Dir => write!(buf, "{}  ", entry.name.blue().bold())?,
+                FType::File => write!(buf,"{}  ", entry.name.white())?,
+                FType::Symlink => write!(buf, "{}  ", entry.name.cyan().bold())?,
+            };
         }
 
         writeln!(buf)?;
@@ -46,72 +48,48 @@ impl Formatter {
         Ok(())
     }
 
-    fn entries_per_row(&mut self, slice: &[String]) -> anyhow::Result<()> {
-        let (x, _) = crossterm::terminal::size()?;
 
-        
-    }
-
-    fn row_print(strings: Vec<String>, x: u16) {
-
+    fn one_line(&self) -> bool {
+        self.entries.0.iter().map(|s| s.name.len() + 2).sum::<usize>() < self.term_width as usize
     }
 
     // Fxn to print strings in formatted columns
-    fn column_print(strings: Vec<String>, x: u16) -> anyhow::Result<()> {
+    fn column_print(mut self) -> anyhow::Result<()> {
         let mut buf = BufWriter::new(stdout());
-        // Number of columns basically
-        let mut divisor: u16 = 1;
 
-        // the most amount of characters that a potential
-        // column could hold, compared to the variable x to 
-        // determine whether there's room for another column or not
-        let mut char_count: u16 = 0;
+        let lengths: Vec<usize> = self.entries.0.iter().map(|e| e.name.len() + 2).collect();
+        let (widths, lines) = calc_lines(&lengths[..], self.term_width);
+        let cols = (lengths.len() as f32 / lines as f32).ceil() as usize;
 
-        // Vec that holds the widths of the longest string 
-        // per column so that when i format the output the amount of
-        // spacing is known
-        let mut widths: Vec<u16> = Vec::with_capacity(6);
+        println!("{:?}", widths);
 
-        // While the number of chars in a line is < the # of cols available
-        // In the terminal divide the list of strings into more and more cols
-        while char_count < x {
-            divisor += 1;
-            char_count = strings
-                .chunks(strings.len() / divisor as usize)
-                .map(|e| e.iter().max_by_key(|string| string.len()).unwrap())
-                .fold(0, |acc, s| acc + s.len() as u16);
-        }
-
-        // Puhsing longest string lens to widths
-        strings
-            .chunks(strings.len() / divisor as usize)
-            .map(|e| e.iter().max_by_key(|string| string.len()).unwrap())
-            .for_each(|s| widths.push(s.len() as u16));
-
-        // The amount of strings per col might not be perfectly
-        // divisble so to account for that check to see if we need to add
-        // 1 to s_per_col because at most a col should only have 1 more element 
-        // than the others
-        let s_per_col = if strings.len() % divisor as usize == 0 {
-            strings.len() / divisor as usize
-        } else {
-            (strings.len() / divisor as usize) + 1
-        };
-
-        println!("DEBUG -- divisor: {} widths.len(): {}", divisor, widths.len());
-
-        for i in 0..s_per_col {
-            for j in 0..divisor {
-                write!(
-                    buf, 
-                    "{:width$}", 
-                    strings[i + (j as usize * s_per_col as usize)], width = widths[j as usize] as usize
-                    )?
+        for i in 0..lines {
+            for j in 0..cols {
+                if let Some(entry) = self.entries.0.get(i + (lines * j)){
+                    println!("{}", widths[j]);
+                    match entry.ftype {
+                        FType::Dir => write!(buf, "{:width$} ", entry.name.clone().blue().bold(), width = 5)?,
+                        FType::File => write!(buf, "{:w$}", entry.name.clone().white(), w = widths[j])?,
+                        FType::Symlink => write!(buf, "{:w$}", entry.name.clone().cyan().bold(), w = widths[j])?,
+                    }
+                }
             }
             writeln!(buf)?;
         }
 
+        // buf.flush()?;
         Ok(())
     }
 }
 
+fn calc_lines(lengths: &[usize], twidth: u16) -> (Vec<usize>, usize) {
+    let mut lines = 1;
+    loop {
+            let iter = lengths.chunks(lines).map(|c| c.iter().max().unwrap().clone());
+            if iter.clone().sum::<usize>() < twidth.into() {
+                break (iter.collect(), lines);
+            } else {
+                lines += 1;
+            }
+        }
+}

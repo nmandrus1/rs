@@ -43,9 +43,7 @@ fn main() -> anyhow::Result<()> {
         None => rs.path = std::env::current_dir()?,
     };
 
-    let mut entries = Entries::new();
-    let dir_iter = read_dir(&rs.path)?;
-    entries.get_files_and_dirs(dir_iter)?;
+    let mut entries = Entries::get_files_and_dirs(rs.path)?;
 
     if !rs.all { 
         entries.ignore_dotfiles() 
@@ -57,9 +55,10 @@ fn main() -> anyhow::Result<()> {
 
     if rs.list {
         todo!()
-    } else {
-        entries.print_entries()?
     }
+
+    entries::print_entries(entries);
+
 
     Ok(())
 }
