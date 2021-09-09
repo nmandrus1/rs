@@ -105,8 +105,25 @@ fn sort_vec(slice: &mut [Entry]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn print_entries(mut entries: Entries) {
+pub fn print_entries(entries: Entries) -> anyhow::Result<()> {
     use textfmt::Formatter;
+    use crossterm::style::Stylize;
 
-    Formatter::new_from_vec(entries).format();
+    let mut fmter = Formatter::from_n_elements(entries.0.len())
+        .with_lengths(get_lens(&entries.0));
+
+    for entry in entries.0 {
+        match entry.ftype {
+            FType::Dir => fmter.push_name(format!("{}", entry.name.blue().bold())),
+            FType::File => fmter.push_name(format!("{}", entry.name.white().bold())),
+            FType::Symlink => fmter.push_name(format!("{}", entry.name.cyan().bold())),
+        }
+    }
+
+    fmter.format()?;
+    Ok(())
+}
+
+fn get_lens(slice: &[Entry]) -> Vec<usize> {
+    slice.iter().map(|e| e.name.len() + 2).collect()
 }

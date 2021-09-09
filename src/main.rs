@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use std::fs::read_dir; 
-
 use anyhow::Result;
 use structopt::StructOpt;
 
@@ -57,7 +55,7 @@ fn main() -> anyhow::Result<()> {
         todo!()
     }
 
-    entries::print_entries(entries);
+    entries::print_entries(entries)?;
 
 
     Ok(())
