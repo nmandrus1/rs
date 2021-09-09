@@ -74,28 +74,13 @@ where P: FnMut(&Entry) -> bool
 //
 // Sort: Insertion Sort
 fn sort_vec(slice: &mut [Entry]) -> anyhow::Result<()> {
-    // Clone slice into other_slice because I'm choosing to 
-    // remove the '.' from strings that have them in other slice
-    // and then sort alphabetically while simultaneously sorting the
-    // original slice
-
-    // Clone slice
     let mut other_vec: Vec<_> = Vec::with_capacity(slice.len());
     other_vec.extend_from_slice(slice);
-
-    // Remove '.' from file names thathave them
-    let mut other_vec: Vec<_> = other_vec.iter_mut()
-        .map(|entry| {
-            if entry.name.starts_with('.') {
-                entry.name.strip_prefix('.').unwrap()
-            } else { entry.name.as_str() }
-        }) 
-        .collect();
 
     // Insertion Sort
     for i in 1..other_vec.len() {
         let mut j = i;
-        while j > 0 && other_vec[j] < other_vec[j - 1]{
+        while j > 0 && other_vec[j].name < other_vec[j - 1].name {
             other_vec.swap(j - 1, j);
             slice.swap(j - 1, j);
             j -= 1;
@@ -105,9 +90,11 @@ fn sort_vec(slice: &mut [Entry]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn print_entries(entries: Entries) -> anyhow::Result<()> {
+pub fn print_entries(mut entries: Entries) -> anyhow::Result<()> {
     use textfmt::Formatter;
     use crossterm::style::Stylize;
+
+    sort_vec(&mut entries.0)?;
 
     let mut fmter = Formatter::from_n_elements(entries.0.len())
         .with_lengths(get_lens(&entries.0));
